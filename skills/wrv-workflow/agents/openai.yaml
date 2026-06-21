@@ -1,0 +1,4 @@
+interface:
+  display_name: "WRV Workflow"
+  short_description: "Writer Reviewer Verifier delivery loop"
+  default_prompt: "Use $wrv-workflow to run a Writer, Reviewer, Verifier delivery loop for this coding task."
