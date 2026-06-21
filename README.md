@@ -121,4 +121,4 @@ If the validator reports missing Python dependencies, inspect `SKILL.md` manuall
 
 ## License
 
-No license has been specified yet. Treat this repository as private/personal unless a license is added.
+MIT License. See [LICENSE](LICENSE).
