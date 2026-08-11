@@ -306,6 +306,35 @@ class PublishVersionReadmeTests(unittest.TestCase):
         self.assertNotIn("Wrong Region", rendered)
         self.assertIn(dt.date.today().isoformat(), rendered)
 
+    def test_existing_chinese_heading_and_contiguous_bullets_are_preserved(self):
+        repo = self.make_repo()
+        initialize_custom(repo, committed_current=True)
+        repo.write(
+            "README.md",
+            "# Demo\n\n## 版本更新记录\n\n"
+            "### 1.1.0（2026-01-01）\n\n"
+            "- 现有条目\n\n"
+            "### 1.0.0（2025-01-01）\n\n- 旧条目\n",
+        )
+        notes = repo.write(
+            "notes.json",
+            json.dumps(
+                {
+                    "version": "1.1.0",
+                    "date": dt.date.today().isoformat(),
+                    "section_heading": "版本更新记录",
+                    "items": ["现有条目", "新增条目"],
+                }
+            ),
+        )
+
+        repo.cli("render", "--notes-file", str(notes), check=True)
+        rendered = (repo.root / "README.md").read_text(encoding="utf-8")
+
+        self.assertIn(f"### 1.1.0（{dt.date.today().isoformat()}）", rendered)
+        self.assertNotIn("### 1.1.0 -", rendered)
+        self.assertIn("- 现有条目\n- 新增条目", rendered)
+
     def test_ios_variables_xcconfig_and_target_selection(self):
         repo = self.make_repo()
         repo.write(

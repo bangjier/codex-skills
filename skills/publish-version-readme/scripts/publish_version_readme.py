@@ -1630,6 +1630,12 @@ def render_readme_text(
             re.I,
         )
         version_label = f"{v_match.group(1)}{version}" if v_match else version
+        if re.search(r"\d{4}-\d{2}-\d{2}", existing_version_title):
+            version_title = re.sub(
+                r"\d{4}-\d{2}-\d{2}", date, existing_version_title, count=1
+            )
+        else:
+            version_title = f"{version_label} - {date}"
         version_end = next(
             (
                 idx
@@ -1674,12 +1680,14 @@ def render_readme_text(
         while preserved_body and not preserved_body[-1].strip():
             preserved_body.pop()
         if additions:
-            if preserved_body:
+            if preserved_body and not re.match(
+                r"^\s*[-*+]\s+", preserved_body[-1].rstrip("\n")
+            ):
                 preserved_body.append("\n")
             preserved_body.extend(f"{bullet_style} {item}\n" for item in additions)
         preserved_body.append("\n")
         lines[version_index:version_end] = [
-            f"{'#' * version_level} {version_label} - {date}\n",
+            f"{'#' * version_level} {version_title}\n",
             *preserved_body,
         ]
     else:
