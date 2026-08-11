@@ -8,6 +8,7 @@ This repository is organized as a multi-skill catalog: each skill lives in its o
 
 | Skill | Description |
 | --- | --- |
+| `publish-version-readme` | Detects a trustworthy release boundary, updates README release notes, then safely stages, commits, and pushes the current branch. |
 | `wrv-workflow` | Runs a coding task through a Writer -> Reviewer -> Verifier loop: implement, review the diff, then validate behavior against the requirement. |
 
 ## Repository Structure
@@ -16,6 +17,16 @@ This repository is organized as a multi-skill catalog: each skill lives in its o
 codex-skills/
 ├── README.md
 └── skills/
+    ├── publish-version-readme/
+    │   ├── SKILL.md
+    │   ├── agents/
+    │   │   └── openai.yaml
+    │   ├── references/
+    │   │   └── configuration.md
+    │   ├── scripts/
+    │   │   └── publish_version_readme.py
+    │   └── tests/
+    │       └── test_publish_version_readme.py
     └── wrv-workflow/
         ├── SKILL.md
         └── agents/
@@ -34,9 +45,29 @@ python3 ~/.codex/skills/.system/skill-installer/scripts/install-skill-from-githu
   --path skills/wrv-workflow
 ```
 
+Install `publish-version-readme`:
+
+```bash
+python3 ~/.codex/skills/.system/skill-installer/scripts/install-skill-from-github.py \
+  --repo bangjier/codex-skills \
+  --path skills/publish-version-readme
+```
+
 Restart Codex after installation, or start a new Codex thread.
 
 ## Use A Skill
+
+Prepare release notes, commit all local changes, and push the current branch:
+
+```text
+$publish-version-readme
+```
+
+Preview only, without writing, committing, or pushing:
+
+```text
+$publish-version-readme 预览
+```
 
 Invoke the skill by name in Codex:
 
@@ -80,7 +111,7 @@ As this repository grows, install multiple skills by passing multiple `--path` v
 python3 ~/.codex/skills/.system/skill-installer/scripts/install-skill-from-github.py \
   --repo bangjier/codex-skills \
   --path skills/wrv-workflow \
-  --path skills/another-skill
+  --path skills/publish-version-readme
 ```
 
 ## Add A New Skill

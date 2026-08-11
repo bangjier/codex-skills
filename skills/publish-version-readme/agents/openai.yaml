@@ -1,0 +1,4 @@
+interface:
+  display_name: "Publish Version README"
+  short_description: "Update release notes, commit changes, and push safely"
+  default_prompt: "Use $publish-version-readme to update versioned README notes, commit all local changes, and push the current branch."
