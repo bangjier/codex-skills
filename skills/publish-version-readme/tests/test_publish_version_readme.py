@@ -453,6 +453,43 @@ class PublishVersionReadmeTests(unittest.TestCase):
         self.assertEqual(payload["version"]["build"], "11")
         self.assertEqual(payload["boundary"]["commit"], boundary)
 
+    def test_code_token_expressions_are_not_sensitive(self):
+        repo = self.make_repo()
+        initialize_custom(repo, committed_current=True)
+        repo.write(
+            "cancel_tokens.dart",
+            "_pollCancelToken = CancelToken();\n"
+            "_installmentIndexCancelToken = CancelToken();\n"
+            "cancelToken: cancelToken,\n"
+            "cancelToken: _pollCancelToken,\n"
+            "cancelToken: CancelToken(),\n"
+            "dzb.token: SkdGlobal.getToken(),\n",
+        )
+
+        result, payload = repo.cli("inspect", "--mode", "preview", check=True)
+
+        self.assertEqual(result.returncode, 0)
+        self.assertTrue(payload["ok"])
+
+    def test_literal_secret_assignments_remain_sensitive(self):
+        cases = (
+            "TOKEN=not-a-real-token-but-long\n",
+            "access_token=abcdefghijklmnopqrstuvwxyz123456\n",
+            "PASSWORD=not!a$real%password123\n",
+            'apiToken: "not-a-real-hardcoded-token",\n',
+            "apiKey = 'not-a-real-hardcoded-value';\n",
+        )
+        for content in cases:
+            with self.subTest(content=content.split("=", 1)[0].split(":", 1)[0]):
+                repo = self.make_repo()
+                initialize_custom(repo, committed_current=True)
+                repo.write("candidate.txt", content)
+
+                result, payload = repo.cli("inspect", "--mode", "preview")
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(payload["error"]["code"], "sensitive_content")
+
     def test_sensitive_file_detached_head_merge_and_no_remote_block(self):
         cases = (
             "sensitive",

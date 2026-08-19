@@ -53,7 +53,8 @@ SAFE_ENV_TEMPLATES = {".env.example", ".env.sample", ".env.template"}
 GENERIC_SECRET_ASSIGNMENT = re.compile(
     r"(?im)^(\s*(?:remote:\s*)?[A-Z0-9_.-]*(?:TOKEN|SECRET|PASSWORD|PASSWD|API[_-]?KEY|"
     r"ACCESS[_-]?KEY|PRIVATE[_-]?KEY|CREDENTIAL)[A-Z0-9_.-]*\s*[:=]\s*)"
-    r"(['\"]?[^\s'\"#]{8,}.*)$"
+    r"(?:(['\"])[^'\"\r\n]{8,}\2\s*[,;]?|[^\s'\"#(),;\[\]{}]{8,})"
+    r"\s*(?:#.*)?$"
 )
 AUTHORIZATION_SECRET = re.compile(
     r"(?im)^(\s*(?:remote:\s*)?Authorization\s*:\s*(?:Bearer|Basic)\s+)(\S+)"
