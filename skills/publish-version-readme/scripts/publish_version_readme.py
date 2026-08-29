@@ -1813,7 +1813,15 @@ def render_command(repo: Path, notes_file: Path, preview: bool) -> dict[str, Any
 def workspace_paths(repo: Path) -> set[str]:
     tracked = {
         part.decode("utf-8", "surrogateescape")
-        for part in git_bytes(repo, "diff", "--name-only", "-z", "HEAD", "--").split(b"\0")
+        for part in git_bytes(
+            repo,
+            "diff",
+            "--no-renames",
+            "--name-only",
+            "-z",
+            "HEAD",
+            "--",
+        ).split(b"\0")
         if part
     }
     untracked = {
@@ -1965,6 +1973,7 @@ def staged_paths(repo: Path) -> set[str]:
             repo,
             "diff",
             "--cached",
+            "--no-renames",
             "--name-only",
             "-z",
             "HEAD",

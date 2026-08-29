@@ -738,6 +738,34 @@ class PublishVersionReadmeTests(unittest.TestCase):
         self.assertEqual(payload["error"]["code"], "release_plan_stale")
         self.assertEqual(repo.git("rev-parse", "HEAD").stdout.strip(), before)
 
+    def test_stage_accepts_rename_as_complete_workspace_change(self):
+        repo = self.make_repo()
+        initialize_custom(repo, committed_current=True)
+        remote = self.make_bare()
+        repo.git("remote", "add", "origin", str(remote))
+        repo.write(
+            "README.md",
+            "# Demo\n\n## Release Notes\n\n### 1.1.0 - {}\n\n- Ready\n".format(
+                dt.date.today().isoformat()
+            ),
+        )
+        old_path = repo.write("lib/widgets/old_popup.dart", "popup\n")
+        repo.commit("add old popup")
+        new_path = repo.root / "lib/widgets/popups/old_popup.dart"
+        new_path.parent.mkdir(parents=True, exist_ok=True)
+        old_path.rename(new_path)
+
+        stage_result, stage_payload = repo.stage("1.1.0", check=True)
+
+        self.assertEqual(stage_result.returncode, 0)
+        self.assertEqual(stage_payload["result"], "staged")
+        self.assertTrue(
+            {
+                "lib/widgets/old_popup.dart",
+                "lib/widgets/popups/old_popup.dart",
+            }.issubset(set(stage_payload["staged_paths"]))
+        )
+
     def test_publish_stages_everything_and_pushes_only_to_local_bare(self):
         repo = self.make_repo()
         initialize_custom(repo, committed_current=True)
