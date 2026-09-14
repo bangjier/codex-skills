@@ -15,7 +15,7 @@ Treat arguments containing `preview` or `预览` as preview mode. Any other expl
 
 ## Inspect
 
-1. Resolve the Git root. Read every applicable `AGENTS.md` and local instruction file before acting. Follow stricter repository instructions; stop on an incompatible instruction.
+1. Resolve the Git root and read applicable repository instructions. Resolve apparent conflicts by instruction authority, scope, and the user's existing authorization, rather than automatically selecting the strictest wording. A full invocation already authorizes the documented stage, commit, and push operations. If a material conflict remains unresolved, pause only the affected mutation and explain the exact conflicting clauses while completing independent read-only preparation.
 2. Read [configuration.md](references/configuration.md) if `.release-readme.yaml` exists or automatic detection needs explanation.
 3. Run:
 
@@ -23,7 +23,7 @@ Treat arguments containing `preview` or `预览` as preview mode. Any other expl
 python3 "$SCRIPT" inspect --repo "$REPO" --mode preview
 ```
 
-Use `--mode publish` for full publish so remote and Git-state preflight checks run. The JSON output is authoritative for provider, version/build, source files, exclusion boundary, commits, status groups, cumulative diff, README path, and suggested checks. Stop when `ok` is false; do not replace a failed detector or boundary with a guess.
+Use `--mode publish` for full publish so remote and Git-state preflight checks run. The JSON output is authoritative for provider, version/build, source files, exclusion boundary, commits, status groups, cumulative diff, README path, and suggested checks. When `ok` is false, pause the dependent release steps, inspect the reported cause, and follow the recovery rules below. Do not replace a failed detector or boundary with a guess.
 
 Show the current branch, concise `git status`, current version/build, boundary commit, boundary rationale, committed changes, and modified/staged/untracked/deleted summary. Never print secret values or sensitive file contents.
 
@@ -88,10 +88,16 @@ The token binds branch, HEAD, version, remote, commits to push, staged paths, st
 
 When there are neither file changes nor unpushed commits, `stage` returns a `no-op` action and `publish` returns `no_changes` without invoking Git push. Treat that as a successful normal exit.
 
-If push fails, state that the local commit is preserved and include only sanitized error output. If `post_commit_mismatch` occurs, state that the local commit is preserved, the push was not attempted, and hook-created changes require manual review.
+If push fails, inspect the remote state through an authorized read-only check before any retry, since the push may have reached the remote despite a lost response. Preserve the local commit, report sanitized evidence, and retry only the same authorized destination after the cause is resolved and a fresh plan passes. Never create a duplicate release commit or force push to recover. If `post_commit_mismatch` occurs, preserve the local commit, report that push was not attempted, and review the hook-created changes; do not amend, rewrite, or push that commit automatically.
 
-## Mandatory Stops
+## Release gates and recovery
 
-Never bypass helper failures. Stop for sensitive files/content anywhere in commits that would be pushed, conflict entries, merge/rebase/revert/cherry-pick state, detached HEAD, ambiguous versions or boundaries, unconfigured multi-module/target selection, failing static checks, missing remote, workspace mutation during checks, staged-path mismatch, stale release plans, or hook-created post-commit mismatches.
+Never bypass helper failures or proceed with a failed release plan. Sensitive files/content in commits to push, unresolved conflicts, an in-progress Git operation, detached HEAD, ambiguous versions or boundaries, unconfigured target selection, failing checks, a missing remote, workspace mutation during checks, staged-path mismatch, stale plans, and post-commit mismatches block the dependent release mutation.
+
+- Diagnose with read-only inspection first. Correct ordinary setup or formatting problems within the authorized scope. Fix check failures only when the underlying edit is already authorized or necessary to make the requested change correct; ask before expanding into unrelated behavior changes.
+- Use the repository's existing configuration and explicit user choices to resolve targets, versions, and remotes. Ask a focused question only when the answer remains ambiguous; do not invent a destination or exclusion boundary.
+- After any correction or state drift, rerun inspection and README review. Preview mode still uses `render --preview` without staging or publishing; full mode reruns `stage` and uses a fresh plan token. Do not repeat the same failure indefinitely without new evidence.
+- Do not disable tests, remove safeguards, discard user edits, or omit non-ignored files to make a full release pass. Sensitive-history and post-commit problems require a separately authorized remediation before publication.
+- If work still requires user action or additional authorization, finish independent safe preparation and report what is complete, what is blocked, and the minimum next action. A preview is complete at its reviewed diff; a full publish is complete only after the authorized push is verified or the helper confirms `no_changes`.
 
 Never force push, pull, merge, rebase, resolve conflicts, amend, rewrite history, add ignored files, or expose `.env` values, tokens, key/certificate contents, signing material, or credential-bearing remote URLs.
