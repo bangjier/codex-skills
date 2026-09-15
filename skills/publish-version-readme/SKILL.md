@@ -66,17 +66,19 @@ For full mode only:
 python3 "$SCRIPT" render --repo "$REPO" --notes-file "$NOTES"
 ```
 
-2. Stage the complete workspace and run checks:
+2. Write `COMMIT_MESSAGE` as one concise sentence describing the actual changes in this new commit, in the user's language (Chinese by default). Base it on the complete local diff against `HEAD`, including staged, unstaged, and untracked changes. Do not reuse the cumulative version notes when they include changes already committed. Omit version/build numbers and the `release:` prefix; for example, `修复登录后页面不刷新的问题并完善错误提示`. Avoid generic subjects such as `发布新版本` or `更新代码`.
+
+Stage the complete workspace and run checks:
 
 ```bash
-python3 "$SCRIPT" stage --repo "$REPO" --expected-version "$VERSION"
+python3 "$SCRIPT" stage --repo "$REPO" --expected-version "$VERSION" --commit-message "$COMMIT_MESSAGE"
 ```
 
 Add `--check-command "$CHECK"` when repository inspection found a better check and `.release-readme.yaml` does not declare `checks.commands`. Repeat the option only when multiple checks are explicitly required.
 
 The helper reruns preflight and sensitive checks, executes the selected checks, verifies they did not mutate the workspace, runs `git add -A`, and compares staged paths to the complete expected non-ignored workspace set.
 
-3. Show `staged_paths`, `staged_summary`, and checks from the stage result. This display must happen before commit. Do not request confirmation; the full invocation already authorizes commit and push.
+3. Show `commit_message`, `staged_paths`, `staged_summary`, and checks from the stage result. Verify the sentence accurately summarizes the staged changes. This display must happen before commit. Do not request confirmation; the full invocation already authorizes commit and push.
 
 4. Immediately finalize with the returned token:
 
@@ -84,7 +86,7 @@ The helper reruns preflight and sensitive checks, executes the selected checks, 
 python3 "$SCRIPT" publish --repo "$REPO" --plan-token "$PLAN_TOKEN"
 ```
 
-The token binds branch, HEAD, version, remote, commits to push, staged paths, staged tree, and commit message. The helper stops if state drifted. It commits as `release: <version>` (or the configured template), verifies hooks did not change the commit tree or leave the workspace dirty, then pushes without force. It pushes only `HEAD` to the existing upstream branch, independent of `push.default`; without an upstream it uses the configured remote or an unambiguous `origin` with `git push -u <remote> HEAD`.
+The token binds branch, HEAD, version, remote, commits to push, staged paths, staged tree, and commit message. The helper stops if state drifted. It commits with the supplied sentence verbatim, verifies hooks did not change the commit tree or leave the workspace dirty, then pushes without force. Legacy `git.commit_message` templates are ignored. If there are no local file changes, omit `--commit-message`; push-only and no-op actions do not create a commit. It pushes only `HEAD` to the existing upstream branch, independent of `push.default`; without an upstream it uses the configured remote or an unambiguous `origin` with `git push -u <remote> HEAD`.
 
 When there are neither file changes nor unpushed commits, `stage` returns a `no-op` action and `publish` returns `no_changes` without invoking Git push. Treat that as a successful normal exit.
 

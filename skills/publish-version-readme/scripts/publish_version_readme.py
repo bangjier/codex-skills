@@ -1915,31 +1915,17 @@ def push_current_branch(repo: Path, remote_plan: dict[str, Any]) -> tuple[bool, 
     return result.returncode == 0, sanitize_output((result.stdout + result.stderr)[-4000:])
 
 
-def render_commit_message(config: dict[str, Any], version: dict[str, Any]) -> str:
-    git_cfg = config.get("git", {})
-    if isinstance(git_cfg, str):
-        git_cfg = {"remote": git_cfg}
-    template = str(git_cfg.get("commit_message", "release: {version}"))
-    try:
-        message = template.format(
-            version=version["version"],
-            build=version.get("build") or "",
-        )
-    except (KeyError, ValueError) as exc:
+def validate_commit_message(message: Optional[str]) -> str:
+    if not message or not message.strip() or "\n" in message or "\r" in message:
         raise ReleaseError(
-            "invalid_config",
-            "git.commit_message contains an unsupported placeholder.",
-        ) from exc
-    if not message.strip() or "\n" in message or "\r" in message:
-        raise ReleaseError(
-            "invalid_config",
-            "Rendered commit message must be one non-empty line.",
+            "invalid_commit_message",
+            "Provide --commit-message as one non-empty line summarizing this commit's changes without a version number.",
         )
     message = message.strip()
     if text_contains_secret(message):
         raise ReleaseError(
             "sensitive_content",
-            "The configured commit message appears to contain secret material.",
+            "The commit message appears to contain secret material.",
         )
     return message
 
@@ -2070,6 +2056,7 @@ def stage_command(
     repo: Path,
     expected_version: str,
     requested_checks: list[str],
+    commit_message: Optional[str] = None,
 ) -> dict[str, Any]:
     inspection = inspect_repo(repo, "publish")
     version = inspection["version"]
@@ -2092,6 +2079,7 @@ def stage_command(
             "README does not contain a heading for the detected version.",
         )
     initial_paths = workspace_paths(repo)
+    message = validate_commit_message(commit_message) if initial_paths else None
     initial_fingerprint = workspace_fingerprint(repo)
     if any(is_sensitive_path(path) for path in initial_paths):
         raise ReleaseError(
@@ -2176,7 +2164,7 @@ def stage_command(
         "branch": inspection["branch"],
         "checks": check_results,
         "check_source": check_source,
-        "commit_message": render_commit_message(config, version),
+        "commit_message": message,
         "expected_version": expected_version,
         "head": git(repo, "rev-parse", "HEAD").strip(),
         "remote_plan": inspection["remote_plan"],
@@ -2192,6 +2180,7 @@ def stage_command(
         "action": action,
         "version": expected_version,
         "branch": inspection["branch"],
+        "commit_message": message,
         "staged_paths": sorted(current_staged_paths),
         "staged_summary": staged_summary,
         "checks": check_results,
@@ -2323,6 +2312,10 @@ def build_parser() -> argparse.ArgumentParser:
     stage_parser = subparsers.add_parser("stage")
     stage_parser.add_argument("--repo", default=".")
     stage_parser.add_argument("--expected-version", required=True)
+    stage_parser.add_argument(
+        "--commit-message",
+        help="One-line summary of this commit's changes, without a version number; required for new commits.",
+    )
     stage_parser.add_argument("--check-command", action="append", default=[])
     publish_parser = subparsers.add_parser("publish")
     publish_parser.add_argument("--repo", default=".")
@@ -2350,6 +2343,7 @@ def main() -> None:
                     repo,
                     args.expected_version,
                     args.check_command,
+                    args.commit_message,
                 )
             )
         if args.command == "publish":

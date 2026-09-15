@@ -78,8 +78,10 @@ class TempRepo:
             raise AssertionError(payload)
         return result, payload
 
-    def stage(self, version, *checks, check=False):
+    def stage(self, version, *checks, message="更新示例文件并补充发布说明", check=False):
         args = ["stage", "--expected-version", version]
+        if message is not None:
+            args.extend(["--commit-message", message])
         for command in checks:
             args.extend(["--check-command", command])
         return self.cli(*args, check=check)
@@ -766,9 +768,39 @@ class PublishVersionReadmeTests(unittest.TestCase):
             }.issubset(set(stage_payload["staged_paths"]))
         )
 
+    def test_invalid_commit_message_stops_before_staging(self):
+        repo = self.make_repo()
+        initialize_custom(repo, committed_current=True)
+        remote = self.make_bare()
+        repo.git("remote", "add", "origin", str(remote))
+        repo.write("README.md", "# Demo\n\n## Release Notes\n\n### 1.1.0\n\n- Ready\n")
+        before_head = repo.git("rev-parse", "HEAD").stdout
+        before_index = repo.git("write-tree").stdout
+        cases = [
+            (None, "invalid_commit_message"),
+            ("", "invalid_commit_message"),
+            ("   ", "invalid_commit_message"),
+            ("修复登录问题\n补充提示", "invalid_commit_message"),
+            ("修复登录问题\r补充提示", "invalid_commit_message"),
+            ("API_TOKEN=placeholder_value_1234567890", "sensitive_content"),
+        ]
+        for message, error in cases:
+            with self.subTest(message=message):
+                result, payload = repo.stage("1.1.0", message=message)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(payload["error"]["code"], error)
+                self.assertNotIn("placeholder_value_1234567890", json.dumps(payload))
+                self.assertEqual(repo.git("rev-parse", "HEAD").stdout, before_head)
+                self.assertEqual(repo.git("write-tree").stdout, before_index)
+                self.assertFalse((repo.root / ".git" / "publish-version-readme-plan.json").exists())
+
     def test_publish_stages_everything_and_pushes_only_to_local_bare(self):
         repo = self.make_repo()
         initialize_custom(repo, committed_current=True)
+        repo.write(
+            ".release-readme.yaml",
+            custom_config("git:\n  commit_message: 'release: {version}+{build}'\n"),
+        )
         remote = self.make_bare()
         repo.git("remote", "add", "origin", str(remote))
         repo.git("branch", "other")
@@ -802,14 +834,17 @@ class PublishVersionReadmeTests(unittest.TestCase):
         repo.write("ignored.log", "ignored\n")
 
         before_stage = repo.git("rev-parse", "HEAD").stdout.strip()
-        stage_result, stage_payload = repo.stage("1.1.0", check=True)
+        first_message = "更新示例文件并补充发布说明"
+        stage_result, stage_payload = repo.stage("1.1.0", message=first_message, check=True)
         self.assertEqual(stage_result.returncode, 0)
         self.assertEqual(stage_payload["result"], "staged")
+        self.assertEqual(stage_payload["commit_message"], first_message)
         self.assertIn("README.md", stage_payload["staged_summary"])
         self.assertEqual(repo.git("rev-parse", "HEAD").stdout.strip(), before_stage)
         result, payload = repo.publish_plan(stage_payload, check=True)
         self.assertEqual(result.returncode, 0)
         self.assertEqual(payload["result"], "committed_and_pushed")
+        self.assertEqual(repo.git("log", "-1", "--format=%B").stdout.strip(), first_message)
         self.assertEqual(repo.git("status", "--short").stdout.strip(), "")
         local_head = repo.git("rev-parse", "HEAD").stdout.strip()
         remote_head = run(
@@ -832,11 +867,14 @@ class PublishVersionReadmeTests(unittest.TestCase):
         self.assertNotIn("ignored.log", committed_paths)
 
         repo.write("modified.txt", "second release commit\n")
-        stage_result, stage_payload = repo.stage("1.1.0", check=True)
+        second_message = "补充示例文件内容"
+        stage_result, stage_payload = repo.stage("1.1.0", message=second_message, check=True)
         self.assertEqual(stage_result.returncode, 0)
+        self.assertEqual(stage_payload["commit_message"], second_message)
         result, payload = repo.publish_plan(stage_payload, check=True)
         self.assertEqual(result.returncode, 0)
         self.assertEqual(payload["result"], "committed_and_pushed")
+        self.assertEqual(repo.git("log", "-1", "--format=%B").stdout.strip(), second_message)
         remote_other_after = run(
             ["git", "--git-dir", str(remote), "rev-parse", "refs/heads/other"],
             repo.root,
@@ -846,9 +884,10 @@ class PublishVersionReadmeTests(unittest.TestCase):
         hook = repo.root / ".git" / "hooks" / "pre-push"
         hook.write_text("#!/bin/sh\nexit 99\n", encoding="ascii")
         hook.chmod(hook.stat().st_mode | stat.S_IXUSR)
-        stage_result, stage_payload = repo.stage("1.1.0", check=True)
+        stage_result, stage_payload = repo.stage("1.1.0", message=None, check=True)
         self.assertEqual(stage_result.returncode, 0)
         self.assertEqual(stage_payload["action"], "no-op")
+        self.assertIsNone(stage_payload["commit_message"])
         result, payload = repo.publish_plan(stage_payload, check=True)
         self.assertEqual(result.returncode, 0)
         self.assertEqual(payload["result"], "no_changes")
@@ -880,7 +919,9 @@ class PublishVersionReadmeTests(unittest.TestCase):
                 before = repo.git("rev-parse", "HEAD").stdout.strip()
                 if reject:
                     repo.write("modified.txt", "publish then reject\n")
-                stage_result, stage_payload = repo.stage("1.1.0", check=True)
+                stage_result, stage_payload = repo.stage(
+                    "1.1.0", message="补充示例文件内容" if reject else None, check=True
+                )
                 self.assertEqual(stage_result.returncode, 0)
                 result, payload = repo.publish_plan(stage_payload)
                 if reject:

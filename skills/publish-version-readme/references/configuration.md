@@ -23,7 +23,6 @@ checks:
   timeout_seconds: 600
 git:
   remote: origin
-  commit_message: 'release: {version}'
 ```
 
 ## Version
@@ -65,4 +64,5 @@ For custom files, the extension selects the structured parser: `.json`, `.toml`,
 - `checks.timeout_seconds`: per-command timeout, default 600 seconds.
 - Invocation-only `stage --check-command`: supplies a repository-reviewed check when `checks.commands` is absent. Project configuration takes priority.
 - `git.remote`: push remote used when the branch has no upstream. Without this, only an existing `origin` is accepted.
-- `git.commit_message`: template supporting `{version}` and `{build}`. Default is `release: {version}`.
+- Invocation-only `stage --commit-message`: required when creating a new commit. Supply one concise sentence describing that commit's actual changes, without version/build numbers or a `release:` prefix. The helper uses the text directly and returns it for review before publishing. Push-only and no-op actions do not require a message.
+- `git.commit_message`: legacy setting, now ignored. Replace version templates with a fresh `--commit-message` summary on each invocation.
