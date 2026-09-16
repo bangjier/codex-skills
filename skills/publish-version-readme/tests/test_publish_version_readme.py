@@ -262,7 +262,7 @@ class PublishVersionReadmeTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(payload["error"]["code"], "ambiguous_version")
 
-    def test_committed_boundary_and_existing_readme_version_is_updated(self):
+    def test_current_version_summary_replaces_old_body_and_is_idempotent(self):
         repo = self.make_repo()
         boundary = initialize_custom(repo, committed_current=True)
         repo.write(
@@ -271,11 +271,13 @@ class PublishVersionReadmeTests(unittest.TestCase):
             + "readme:\n"
             + "  section: Release Notes\n",
         )
+        prefix = "# Demo\n\n## Release Notes\n\n"
+        history = "### 1.0.0 - 2025-01-01\n\n- Older item\n\n## Usage\n\nKeep these instructions.\n"
         repo.write(
             "README.md",
-            "# Demo\n\n## Release Notes\n\n### v1.1.0 - 2026-01-01\n\n"
-            "Keep this release context.\n\n- Existing item\n\n"
-            "### 1.0.0 - 2025-01-01\n\n- Older item\n",
+            prefix + "### v1.1.0 - 2026-01-01\n\n"
+            "Replaced release context.\n\n- Add login\n- Fix login errors\n\n"
+            "#### Experimental feature\n\n- Reverted experiment\n\n" + history,
         )
         notes = repo.write(
             "notes.json",
@@ -284,7 +286,7 @@ class PublishVersionReadmeTests(unittest.TestCase):
                     "version": "1.1.0",
                     "date": dt.date.today().isoformat(),
                     "section_heading": "Wrong Region",
-                    "items": ["Existing item", "New verified item"],
+                    "items": ["Add login with clear error messages", "Add login with clear error messages."],
                 }
             ),
         )
@@ -297,16 +299,24 @@ class PublishVersionReadmeTests(unittest.TestCase):
             "render", "--notes-file", str(notes), "--preview", check=True
         )
         self.assertEqual(preview.returncode, 0)
-        self.assertIn("New verified item", preview_payload["diff"])
+        self.assertIn("+- Add login with clear error messages", preview_payload["diff"])
+        self.assertIn("-- Fix login errors", preview_payload["diff"])
         self.assertEqual((repo.root / "README.md").read_text(encoding="utf-8"), before)
         repo.cli("render", "--notes-file", str(notes), check=True)
         rendered = (repo.root / "README.md").read_text(encoding="utf-8")
         self.assertEqual(rendered.count("### v1.1.0"), 1)
-        self.assertEqual(rendered.count("Existing item"), 1)
-        self.assertIn("New verified item", rendered)
-        self.assertIn("Keep this release context.", rendered)
+        self.assertEqual(rendered.count("Add login with clear error messages"), 1)
+        self.assertNotIn("Fix login errors", rendered)
+        self.assertNotIn("Replaced release context.", rendered)
+        self.assertNotIn("Experimental feature", rendered)
+        self.assertNotIn("Reverted experiment", rendered)
+        self.assertTrue(rendered.startswith(prefix))
+        self.assertTrue(rendered.endswith(history))
         self.assertNotIn("Wrong Region", rendered)
         self.assertIn(dt.date.today().isoformat(), rendered)
+        _, repeated = repo.cli("render", "--notes-file", str(notes), check=True)
+        self.assertFalse(repeated["changed"])
+        self.assertEqual((repo.root / "README.md").read_text(encoding="utf-8"), rendered)
 
     def test_existing_chinese_heading_and_contiguous_bullets_are_preserved(self):
         repo = self.make_repo()
@@ -325,7 +335,7 @@ class PublishVersionReadmeTests(unittest.TestCase):
                     "version": "1.1.0",
                     "date": dt.date.today().isoformat(),
                     "section_heading": "版本更新记录",
-                    "items": ["现有条目", "新增条目"],
+                    "items": ["整合后的功能摘要", "独立的重要修复"],
                 }
             ),
         )
@@ -335,7 +345,82 @@ class PublishVersionReadmeTests(unittest.TestCase):
 
         self.assertIn(f"### 1.1.0（{dt.date.today().isoformat()}）", rendered)
         self.assertNotIn("### 1.1.0 -", rendered)
-        self.assertIn("- 现有条目\n- 新增条目", rendered)
+        self.assertIn("- 整合后的功能摘要\n- 独立的重要修复", rendered)
+        self.assertNotIn("现有条目", rendered)
+        self.assertIn("### 1.0.0（2025-01-01）\n\n- 旧条目\n", rendered)
+
+    def test_new_version_preserves_existing_release_history(self):
+        repo = self.make_repo()
+        initialize_custom(repo, committed_current=True)
+        prefix = "# Demo\n\n## Release Notes\n\nThese are user-facing changes.\n\n"
+        history = (
+            "### 1.0.0 - 2026-01-01\n\n* Previous feature\n\n"
+            "#### Migration\n\nKeep this migration guide.\n\n"
+            "### 0.9.0 - 2025-01-01\n\n* Earlier feature\n\n"
+            "## Usage\n\nKeep these instructions.\n"
+        )
+        repo.write("README.md", prefix + history)
+        items = [f"Independent change {index}" for index in range(6)]
+        notes = repo.write(
+            "notes.json",
+            json.dumps({"version": "1.1.0", "date": dt.date.today().isoformat(), "items": items}),
+        )
+        repo.cli("render", "--notes-file", str(notes), check=True)
+        rendered = (repo.root / "README.md").read_text(encoding="utf-8")
+        self.assertTrue(rendered.startswith(prefix + "### 1.1.0 - "))
+        self.assertTrue(rendered.endswith(history))
+        for item in items:
+            self.assertIn("* " + item + "\n", rendered)
+        _, repeated = repo.cli("render", "--notes-file", str(notes), check=True)
+        self.assertFalse(repeated["changed"])
+        self.assertEqual((repo.root / "README.md").read_text(encoding="utf-8"), rendered)
+
+    def test_summary_replacement_respects_markers_and_line_endings(self):
+        repo = self.make_repo()
+        initialize_custom(repo, committed_current=True)
+        repo.write(
+            ".release-readme.yaml",
+            custom_config(
+                "readme:\n"
+                "  start_marker: '<!-- release-notes:start -->'\n"
+                "  end_marker: '<!-- release-notes:end -->'\n"
+            ),
+        )
+        prefix = "# Demo\r\n\r\n<!-- release-notes:start -->\r\n\r\n"
+        suffix = (
+            "### 1.0.0 - 2025-01-01\r\n\r\n* Older item\r\n\r\n"
+            "<!-- release-notes:end -->\r\n\r\n"
+            "## Compatibility with 1.1.0\r\n\r\nKeep these instructions.\r\n"
+        )
+        readme = repo.root / "README.md"
+        readme.write_bytes((prefix + "### v1.1.0（2026-01-01）\r\n\r\n* Old item\r\n\r\n" + suffix).encode("utf-8"))
+        notes = repo.write(
+            "notes.json",
+            json.dumps({"version": "1.1.0", "date": dt.date.today().isoformat(), "items": ["Consolidated summary"]}),
+        )
+        repo.cli("render", "--notes-file", str(notes), check=True)
+        rendered = readme.read_bytes().decode("utf-8")
+        self.assertTrue(rendered.startswith(prefix))
+        self.assertTrue(rendered.endswith(suffix))
+        self.assertIn(f"### v1.1.0（{dt.date.today().isoformat()}）\r\n\r\n* Consolidated summary\r\n", rendered)
+        self.assertNotIn("Old item", rendered)
+        self.assertNotIn("\n", rendered.replace("\r\n", ""))
+
+    def test_empty_summary_does_not_erase_existing_version(self):
+        repo = self.make_repo()
+        initialize_custom(repo, committed_current=True)
+        readme = repo.write("README.md", "# Demo\n\n## Release Notes\n\n### 1.1.0\n\n- Existing feature\n")
+        before = readme.read_bytes()
+        for items in ([], [" ", "-", "!!!"]):
+            with self.subTest(items=items):
+                notes = repo.write(
+                    "notes.json",
+                    json.dumps({"version": "1.1.0", "date": dt.date.today().isoformat(), "items": items}),
+                )
+                result, payload = repo.cli("render", "--notes-file", str(notes))
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(payload["error"]["code"], "invalid_notes")
+                self.assertEqual(readme.read_bytes(), before)
 
     def test_ios_variables_xcconfig_and_target_selection(self):
         repo = self.make_repo()

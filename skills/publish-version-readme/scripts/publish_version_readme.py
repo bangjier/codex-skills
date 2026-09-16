@@ -1621,7 +1621,6 @@ def render_readme_text(
             "ambiguous_readme",
             "The current version appears in multiple headings in the release-note region.",
         )
-    existing_items: list[str] = []
     bullet_style = "-"
     if version_headings:
         version_index, version_level, existing_version_title = version_headings[0]
@@ -1649,9 +1648,10 @@ def render_readme_text(
             bullet = re.match(r"^\s*([-*+])\s+(.+?)\s*$", line.rstrip("\n"))
             if bullet:
                 bullet_style = bullet.group(1)
-                existing_items.append(bullet.group(2))
+                break
     else:
         version_level = min(section_level + 1, 6)
+        version_title = f"{version} - {date}"
         version_index = region_start
         version_end = region_start
         for line in lines[region_start:region_end]:
@@ -1660,46 +1660,30 @@ def render_readme_text(
                 bullet_style = bullet.group(1)
                 break
 
-    merged_items = unique_items([*existing_items, *items])
-    if not merged_items:
+    summary_items = unique_items(items)
+    if not summary_items:
         raise ReleaseError(
             "invalid_notes",
             "At least one evidence-based release-note item is required.",
         )
+    entry_lines = [f"{'#' * version_level} {version_title}\n", "\n"]
+    entry_lines.extend(f"{bullet_style} {item}\n" for item in summary_items)
+    entry_lines.append("\n")
     if version_headings:
-        existing_keys = {
-            re.sub(r"[\s\W_]+", "", item, flags=re.UNICODE).lower()
-            for item in existing_items
-        }
-        additions = [
-            item
-            for item in unique_items(items)
-            if re.sub(r"[\s\W_]+", "", item, flags=re.UNICODE).lower()
-            not in existing_keys
-        ]
-        preserved_body = list(lines[version_index + 1 : version_end])
-        while preserved_body and not preserved_body[-1].strip():
-            preserved_body.pop()
-        if additions:
-            if preserved_body and not re.match(
-                r"^\s*[-*+]\s+", preserved_body[-1].rstrip("\n")
-            ):
-                preserved_body.append("\n")
-            preserved_body.extend(f"{bullet_style} {item}\n" for item in additions)
-        preserved_body.append("\n")
-        lines[version_index:version_end] = [
-            f"{'#' * version_level} {version_title}\n",
-            *preserved_body,
-        ]
+        lines[version_index:version_end] = entry_lines
+    elif section_index is not None or start_marker:
+        insertion_index = next(
+            (
+                idx
+                for idx, level, _ in headings
+                if region_start <= idx < region_end and level == version_level
+            ),
+            region_end,
+        )
+        if insertion_index > 0 and lines[insertion_index - 1].strip():
+            entry_lines.insert(0, "\n")
+        lines[insertion_index:insertion_index] = entry_lines
     else:
-        entry_lines = [f"{'#' * version_level} {version} - {date}\n", "\n"]
-        entry_lines.extend(f"{bullet_style} {item}\n" for item in merged_items)
-        entry_lines.append("\n")
-    if not version_headings and (section_index is not None or start_marker):
-        if region_start < len(lines) and lines[region_start].strip():
-            entry_lines.append("\n")
-        lines[region_start:region_start] = entry_lines
-    elif not version_headings:
         chosen = str(
             section_heading
             or (

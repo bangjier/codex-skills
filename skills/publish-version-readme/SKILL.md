@@ -42,7 +42,11 @@ Read the current README, commits, and cumulative diff returned by `inspect`. Pro
 }
 ```
 
-Match the README's language, heading hierarchy, bullet style, and wording. Prefer an existing release-notes/changelog region. Base every item on specific evidence; consolidate low-quality commit subjects, omit internal churn that has no user-facing meaning, and do not claim unverified tests or fixes. Avoid duplicates. When the current version exists, include its useful existing items so updating does not discard them.
+Match the README's language, heading hierarchy, bullet style, and wording. Prefer an existing release-notes/changelog region. Base every item on specific evidence; omit internal churn that has no user-facing meaning, and do not claim unverified tests or fixes.
+
+Treat `items` as the complete, consolidated summary for the current version. Review the existing version notes together with all commits and the cumulative diff since the release boundary. Merge related changes into one outcome-focused item, fold follow-up fixes into that item, and remove claims for changes that were reverted or superseded. Preserve still-relevant independent changes as separate items and carry forward essential context, including migration instructions or warnings from the old section. Do not set a target or maximum number of items; the number of distinct changes determines the list length.
+
+The renderer replaces the current version's entire section body with these items, including any old prose or subsections. Supply the full version summary on every run; a list containing only this commit's changes would lose earlier useful information. Preserve other versions and unrelated README content. A new version gets its own section; completed versions remain as history.
 
 When `diff_truncated` is true, inspect every path in `changed_paths_since_boundary` with focused Git diffs or file reads before drafting notes. Do not proceed from the truncated patch alone.
 
@@ -52,7 +56,7 @@ Generate the proposed diff without writing:
 python3 "$SCRIPT" render --repo "$REPO" --notes-file "$NOTES" --preview
 ```
 
-Review the diff for unsupported claims, duplicate bullets, damaged README structure, wrong version/date, or unrelated edits. Revise the notes and rerun until clean.
+Review the diff for unsupported claims, lost important changes or context, duplicate or fragmented items about the same feature, damaged README structure, wrong version/date, or edits outside the current version section. For a new version, verify the existing release history is preserved. Revise the notes and rerun until clean.
 
 In preview mode, return the inspection summary and final proposed README diff. Do not write the README, stage, commit, or push. Stop here.
 

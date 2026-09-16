@@ -52,6 +52,8 @@ For custom files, the extension selects the structured parser: `.json`, `.toml`,
 - `section`: exact existing Markdown heading text, or the heading to create.
 - `start_marker` and `end_marker`: optional exact marker pair delimiting the release-notes region. Configure both or neither.
 
+The notes JSON `items` list is the complete summary for the detected version. Rendering replaces that version's entire section body, including old paragraphs and subsections, while preserving its heading style and the other versions. Consolidate all still-relevant changes and essential context into `items` before rendering. If the version has no section yet, a new section is added and the existing release history is preserved.
+
 ## Boundary
 
 - `strategy: version-file-history`: default; derive the exclusion commit from version-source history.
