@@ -56,7 +56,7 @@ The notes JSON `items` list is the complete summary for the detected version. Re
 
 ## Boundary
 
-- `strategy: version-file-history`: default; derive the exclusion commit from version-source history.
+- `strategy: version-file-history`: default; identify the previous version from version-source history, then exclude through the last committed edit to its README section before the current version was introduced. If no such edit exists, use the previous version's introduction commit as a conservative boundary and review old notes for overlap. If the old section was removed or edited in the version-bump commit, configure an explicit boundary.
 - `strategy: commit`: use `commit` as an explicit exclusion boundary after verifying it is an ancestor of `HEAD`.
 - `strategy: tag`: resolve `ref` to a commit and verify it is an ancestor of `HEAD`.
 

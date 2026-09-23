@@ -243,6 +243,93 @@ class PublishVersionReadmeTests(unittest.TestCase):
         self.assertNotIn("ignored.log", json.dumps(payload))
         self.assertNotIn("vendor/pubspec.yaml", json.dumps(payload))
 
+    def test_previous_version_notes_checkpoint_excludes_already_recorded_changes(self):
+        repo = self.make_repo()
+        repo.write("pubspec.yaml", flutter_pubspec("0.9.0+9"))
+        repo.write("README.md", "# Demo\n\n## 版本更新记录\n\n")
+        repo.commit("initial")
+        repo.write("pubspec.yaml", flutter_pubspec("1.0.0+10"))
+        repo.write(
+            "README.md",
+            "# Demo\n\n## 版本更新记录\n\n### 1.0.0+10（2026-01-01）\n\n- Initial feature\n",
+        )
+        introduction = repo.commit("release 1.0")
+        repo.write("old_feature.txt", "old feature\n")
+        repo.commit("add old feature")
+        repo.write(
+            "README.md",
+            "# Demo\n\n## 版本更新记录\n\n### 1.0.0+10（2026-01-02）\n\n"
+            "- Initial feature\n- Old feature\n",
+        )
+        checkpoint = repo.commit("update old release notes")
+        repo.write("new_feature.txt", "new feature\n")
+        after_checkpoint = repo.commit("add next release feature")
+        repo.write("pubspec.yaml", flutter_pubspec("1.1.0+11"))
+        repo.commit("bump current version")
+
+        _, inspection = repo.cli("inspect", "--mode", "preview", check=True)
+        self.assertNotEqual(inspection["boundary"]["commit"], introduction)
+        self.assertEqual(inspection["boundary"]["commit"], checkpoint)
+        self.assertEqual(inspection["boundary"]["strategy"], "previous-readme-section")
+        self.assertEqual(inspection["boundary"]["previous_version"], "1.0.0+10")
+        self.assertIn(after_checkpoint, [item["commit"] for item in inspection["commits_after_boundary"]])
+        self.assertNotIn("old_feature.txt", inspection["changed_paths_since_boundary"])
+
+        notes = repo.write(
+            "notes.json",
+            json.dumps({
+                "version": "1.1.0+11",
+                "date": dt.date.today().isoformat(),
+                "items": ["Old feature"],
+            }),
+        )
+        result, duplicate = repo.cli("render", "--notes-file", str(notes), "--preview")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(duplicate["error"]["code"], "duplicate_release_note")
+
+        notes.write_text(json.dumps({
+            "version": "1.1.0+11",
+            "date": dt.date.today().isoformat(),
+            "items": ["New feature"],
+        }), encoding="utf-8")
+        repo.cli("render", "--notes-file", str(notes), check=True)
+        repo.commit("document current release")
+        _, repeated = repo.cli("inspect", "--mode", "preview", check=True)
+        self.assertEqual(repeated["boundary"]["commit"], checkpoint)
+        _, render = repo.cli("render", "--notes-file", str(notes), "--preview", check=True)
+        self.assertFalse(render["changed"])
+
+    def test_removed_previous_version_section_requires_explicit_boundary(self):
+        repo = self.make_repo()
+        repo.write("pubspec.yaml", flutter_pubspec("0.9.0+9"))
+        repo.write("README.md", "# Demo\n\n## Release Notes\n")
+        repo.commit("initial")
+        repo.write("pubspec.yaml", flutter_pubspec("1.0.0+10"))
+        repo.write("README.md", "# Demo\n\n## Release Notes\n\n### 1.0.0+10\n\n- Old feature\n")
+        repo.commit("release 1.0")
+        repo.write("README.md", "# Demo\n\n## Release Notes\n")
+        repo.commit("remove previous release notes")
+        repo.write("pubspec.yaml", flutter_pubspec("1.1.0+11"))
+        repo.commit("release 1.1")
+        result, payload = repo.cli("inspect", "--mode", "preview")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(payload["error"]["code"], "ambiguous_boundary")
+
+    def test_previous_notes_changed_with_version_bump_requires_explicit_boundary(self):
+        repo = self.make_repo()
+        repo.write("pubspec.yaml", flutter_pubspec("0.9.0+9"))
+        repo.write("README.md", "# Demo\n\n## Release Notes\n")
+        repo.commit("initial")
+        repo.write("pubspec.yaml", flutter_pubspec("1.0.0+10"))
+        repo.write("README.md", "# Demo\n\n## Release Notes\n\n### 1.0.0+10\n\n- Old feature\n")
+        repo.commit("release 1.0")
+        repo.write("pubspec.yaml", flutter_pubspec("1.1.0+11"))
+        repo.write("README.md", "# Demo\n\n## Release Notes\n\n### 1.0.0+10\n\n- Old feature\n- Late fix\n")
+        repo.commit("bump version and update old notes")
+        result, payload = repo.cli("inspect", "--mode", "preview")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(payload["error"]["code"], "ambiguous_boundary")
+
     def test_flutter_multiple_versioned_modules_require_configuration(self):
         repo = self.make_repo()
         repo.write("pubspec.yaml", flutter_pubspec("1.0.0+1"))

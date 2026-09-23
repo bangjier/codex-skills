@@ -25,7 +25,7 @@ python3 "$SCRIPT" inspect --repo "$REPO" --mode preview
 
 Use `--mode publish` for full publish so remote and Git-state preflight checks run. The JSON output is authoritative for provider, version/build, source files, exclusion boundary, commits, status groups, cumulative diff, README path, and suggested checks. When `ok` is false, pause the dependent release steps, inspect the reported cause, and follow the recovery rules below. Do not replace a failed detector or boundary with a guess.
 
-Show the current branch, concise `git status`, current version/build, boundary commit, boundary rationale, committed changes, and modified/staged/untracked/deleted summary. Never print secret values or sensitive file contents.
+Show the current branch, concise `git status`, current version/build, boundary commit, boundary rationale, committed changes, and modified/staged/untracked/deleted summary. The automatic boundary uses the last committed update to the previous version's README section before the new version begins, when available; otherwise it falls back to the previous version's introduction commit. If the README history cannot establish what an old entry covers, review it against the candidate changes or configure an explicit boundary. Never print secret values or sensitive file contents.
 
 Compare `static_checks` with applicable repository instructions and actual project tooling. If project configuration declares `checks.commands`, use it. Otherwise choose the fastest existing relevant static check; retain the detected command when correct or pass the better command to `stage` with `--check-command`. Do not invent a check when the project has none.
 
@@ -44,7 +44,7 @@ Read the current README, commits, and cumulative diff returned by `inspect`. Pro
 
 Match the README's language, heading hierarchy, bullet style, and wording. Prefer an existing release-notes/changelog region. Base every item on specific evidence; omit internal churn that has no user-facing meaning, and do not claim unverified tests or fixes.
 
-Treat `items` as the complete, consolidated summary for the current version. Review the existing version notes together with all commits and the cumulative diff since the release boundary. Merge related changes into one outcome-focused item, fold follow-up fixes into that item, and remove claims for changes that were reverted or superseded. Preserve still-relevant independent changes as separate items and carry forward essential context, including migration instructions or warnings from the old section. Do not set a target or maximum number of items; the number of distinct changes determines the list length.
+Treat `items` as the complete, consolidated summary for the current version. On a repeat run for that version, incorporate its existing section; when creating a new version, use the previous section as an exclusion checklist, not a source to copy. Review all commits and the cumulative diff since the release boundary. Merge related changes into one outcome-focused item, fold follow-up fixes into that item, and remove claims for changes that were reverted or superseded. Preserve still-relevant independent changes for the current version as separate items and carry forward essential migration instructions or warnings only when they still apply, making clear what changed in this version. Do not set a target or maximum number of items; the number of distinct changes determines the list length.
 
 The renderer replaces the current version's entire section body with these items, including any old prose or subsections. Supply the full version summary on every run; a list containing only this commit's changes would lose earlier useful information. Preserve other versions and unrelated README content. A new version gets its own section; completed versions remain as history.
 
@@ -56,7 +56,7 @@ Generate the proposed diff without writing:
 python3 "$SCRIPT" render --repo "$REPO" --notes-file "$NOTES" --preview
 ```
 
-Review the diff for unsupported claims, lost important changes or context, duplicate or fragmented items about the same feature, damaged README structure, wrong version/date, or edits outside the current version section. For a new version, verify the existing release history is preserved. Revise the notes and rerun until clean.
+Review the diff for unsupported claims, lost important changes or context, duplicate or fragmented items about the same feature, damaged README structure, wrong version/date, or edits outside the current version section. Compare every new item with the previous version's items for semantic overlap, including paraphrases that the renderer's exact-duplicate check cannot detect. For a new version, verify the existing release history is preserved. Revise the notes and rerun until clean.
 
 In preview mode, return the inspection summary and final proposed README diff. Do not write the README, stage, commit, or push. Stop here.
 

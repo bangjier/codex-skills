@@ -1186,7 +1186,7 @@ def check_sensitive_push_range(repo: Path, remote_plan: dict[str, Any]) -> None:
 
 def history_for_source(
     repo: Path, config: dict[str, Any], current: VersionInfo, source: str
-) -> tuple[str, bool]:
+) -> tuple[str, Optional[str], bool]:
     commits = [
         line
         for line in git(
@@ -1225,7 +1225,7 @@ def history_for_source(
                 "boundary_not_found",
                 "The previous committed version has no trustworthy introduction commit.",
             )
-        return matches[0][0], True
+        return matches[0][0], None, True
     matching_indexes = [index for index, item in enumerate(upgrades) if item[1] == current.signature]
     if not matching_indexes:
         raise ReleaseError(
@@ -1238,7 +1238,99 @@ def history_for_source(
             "boundary_not_found",
             "No prior version upgrade commit exists for the current version.",
         )
-    return upgrades[previous_index][0], False
+    return upgrades[previous_index][0], upgrades[matching_indexes[0]][0], False
+
+
+def release_version_section(text: str, version: str, readme_cfg: dict[str, Any]) -> Optional[str]:
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").splitlines()
+    headings = [
+        (index, len(match.group(1)), match.group(2).strip())
+        for index, line in enumerate(lines)
+        if (match := re.match(r"^(#{1,6})\s+(.+?)\s*$", line))
+    ]
+    start_marker = readme_cfg.get("start_marker")
+    end_marker = readme_cfg.get("end_marker")
+    if bool(start_marker) != bool(end_marker):
+        raise ReleaseError("invalid_config", "README markers must be configured together.")
+    region_start, region_end = 0, len(lines)
+    if start_marker:
+        starts = [i for i, line in enumerate(lines) if line == str(start_marker)]
+        ends = [i for i, line in enumerate(lines) if line == str(end_marker)]
+        if not starts and not ends:
+            return None
+        if len(starts) != 1 or len(ends) != 1 or starts[0] >= ends[0]:
+            raise ReleaseError("ambiguous_readme", "Configured README markers are missing or ambiguous.")
+        region_start, region_end = starts[0] + 1, ends[0]
+    else:
+        section = readme_cfg.get("section")
+        candidates = [
+            (index, level, title)
+            for index, level, title in headings
+            if (title.lower() == str(section).strip().lower()
+                if section else title.lower() in KNOWN_RELEASE_HEADINGS)
+        ]
+        if len(candidates) > 1:
+            raise ReleaseError("ambiguous_readme", "Multiple release-note regions require readme.section configuration.")
+        if not candidates:
+            return None
+        section_index, section_level, _ = candidates[0]
+        region_start = section_index + 1
+        region_end = next(
+            (index for index, level, _ in headings if index > section_index and level <= section_level),
+            len(lines),
+        )
+    matches = [
+        (index, level)
+        for index, level, title in headings
+        if region_start <= index < region_end and heading_matches_version(title, version)
+    ]
+    if len(matches) > 1:
+        raise ReleaseError("ambiguous_readme", "The previous version has multiple README headings.")
+    if not matches:
+        return None
+    index, level = matches[0]
+    end = next(
+        (
+            next_index
+            for next_index, next_level, _ in headings
+            if index < next_index < region_end and next_level <= level
+        ),
+        region_end,
+    )
+    return "\n".join(lines[index:end]).strip()
+
+
+def previous_notes_checkpoint(
+    repo: Path, config: dict[str, Any], boundary: str, current_intro: Optional[str], previous: str
+) -> Optional[str]:
+    relative = resolve_readme(repo, config)
+    readme_cfg = config.get("readme", {})
+    if isinstance(readme_cfg, str):
+        readme_cfg = {"file": readme_cfg}
+
+    def section_at(revision: str) -> Optional[str]:
+        result = run_process(["git", "show", f"{revision}:{relative}"], repo, check=False)
+        if result.returncode:
+            return None
+        return release_version_section(result.stdout, previous, readme_cfg)
+
+    last_section = section_at(boundary)
+    checkpoint = None
+    end = f"{current_intro}^" if current_intro else "HEAD"
+    commits = git(repo, "log", "--first-parent", "--format=%H", f"{boundary}..{end}", "--", relative)
+    for commit in reversed(commits.splitlines()):
+        section = section_at(commit)
+        if last_section is not None and section is None:
+            raise ReleaseError("ambiguous_boundary", "The previous version's README section was removed; configure an explicit boundary.")
+        if section is not None and section != last_section:
+            checkpoint = commit
+        last_section = section
+    if current_intro and section_at(current_intro) != last_section:
+        raise ReleaseError(
+            "ambiguous_boundary",
+            "The previous version's README section changed with the version bump; configure an explicit boundary.",
+        )
+    return checkpoint
 
 
 def find_boundary(repo: Path, config: dict[str, Any], current: VersionInfo) -> tuple[str, str, bool]:
@@ -1265,13 +1357,19 @@ def find_boundary(repo: Path, config: dict[str, Any], current: VersionInfo) -> t
         raise ReleaseError("boundary_not_found", "Version detector did not identify a source file.")
     results = [history_for_source(repo, config, current, source) for source in current.source_files]
     commits = {result[0] for result in results}
-    uncommitted_flags = {result[1] for result in results}
-    if len(commits) != 1 or len(uncommitted_flags) != 1:
+    introductions = {result[1] for result in results}
+    uncommitted_flags = {result[2] for result in results}
+    if len(commits) != 1 or len(introductions) != 1 or len(uncommitted_flags) != 1:
         raise ReleaseError(
             "boundary_not_found",
             "Version source histories disagree on the release boundary.",
         )
-    return next(iter(commits)), "version-file-history", next(iter(uncommitted_flags))
+    boundary = next(iter(commits))
+    previous = detect_version(repo, config, boundary, current.selection).version
+    checkpoint = previous_notes_checkpoint(repo, config, boundary, next(iter(introductions)), previous)
+    if checkpoint:
+        return checkpoint, "previous-readme-section", next(iter(uncommitted_flags))
+    return boundary, "version-file-history", next(iter(uncommitted_flags))
 
 
 def resolve_readme(repo: Path, config: dict[str, Any]) -> str:
@@ -1473,6 +1571,11 @@ def inspect_repo(repo: Path, mode: str) -> dict[str, Any]:
     branch = validate_git_state(repo)
     current = detect_version(repo, config)
     boundary, reason, version_uncommitted = find_boundary(repo, config, current)
+    previous_version = (
+        detect_version(repo, config, boundary, current.selection).version
+        if reason in {"version-file-history", "previous-readme-section"}
+        else None
+    )
     status = parse_status(repo)
     remote = resolve_remote(repo, config) if mode == "publish" else None
     check_sensitive_changes(repo, boundary, status)
@@ -1495,6 +1598,7 @@ def inspect_repo(repo: Path, mode: str) -> dict[str, Any]:
             "short_commit": boundary[:12],
             "strategy": reason,
             "excluded": True,
+            **({"previous_version": previous_version} if previous_version else {}),
         },
         "commits_after_boundary": commits,
         "status": summarize_status(status),
@@ -1521,7 +1625,7 @@ def heading_matches_version(text: str, version: str) -> bool:
     optional_v = "" if version.lower().startswith("v") else "v?"
     return bool(
         re.search(
-            rf"(?<![A-Za-z0-9]){optional_v}{re.escape(version)}(?![A-Za-z0-9])",
+            rf"(?<![A-Za-z0-9]){optional_v}{re.escape(version)}(?![A-Za-z0-9.+-])",
             text,
             re.I,
         )
@@ -1540,11 +1644,15 @@ def unique_items(items: Iterable[str]) -> list[str]:
     seen: set[str] = set()
     for raw in items:
         item = re.sub(r"\s+", " ", str(raw)).strip().lstrip("-*+ ").strip()
-        key = re.sub(r"[\s\W_]+", "", item, flags=re.UNICODE).lower()
+        key = note_key(item)
         if item and key and key not in seen:
             seen.add(key)
             result.append(item)
     return result
+
+
+def note_key(item: str) -> str:
+    return re.sub(r"[\s\W_]+", "", item, flags=re.UNICODE).lower()
 
 
 def render_readme_text(
@@ -1748,6 +1856,19 @@ def render_command(repo: Path, notes_file: Path, preview: bool) -> dict[str, Any
     readme_cfg = config.get("readme", {})
     if isinstance(readme_cfg, str):
         readme_cfg = {"file": readme_cfg}
+    previous_version = inspection["boundary"].get("previous_version")
+    if previous_version:
+        previous_section = release_version_section(existing, previous_version, readme_cfg)
+        if previous_section:
+            old_items = {
+                note_key(match.group(1))
+                for match in re.finditer(r"(?m)^\s*[-*+]\s+(.+?)\s*$", previous_section)
+            }
+            if any(note_key(item) in old_items for item in items):
+                raise ReleaseError(
+                    "duplicate_release_note",
+                    "A proposed release-note item duplicates a previous version item.",
+                )
     rendered = render_readme_text(
         existing,
         detected_version,
